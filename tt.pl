@@ -54,7 +54,8 @@ sub find_letter($$) {
 my $d = load_letters();
 
 my $pp2 = Image::Magick->new();
-$pp2->Read("ppp5.jpg");
+#$pp2->Read("ppp5.jpg");
+$pp2->Read("t/2.jpg");
 my @pp2_pixels = $pp2->GetPixels(
 	x => 0,
 	y => 0,
