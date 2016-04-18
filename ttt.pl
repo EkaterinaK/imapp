@@ -29,7 +29,8 @@ sub get_lines_coord($) {
 	my $h = $img->Get('rows');
 	my @lines = ();
 	
-	for (my $i = 0; $i < $h; ++$i) {
+	# !! start with 1 because 0 cause error if 0th line is not empty
+	for (my $i = 1; $i < $h; ++$i) {
 		#read next line
 		my @pixels = $img->GetPixels(
 			x     => 0,
@@ -67,7 +68,8 @@ sub get_letters_coord($$$) {
 	
 	# 1. find columns 
 	my @columns = ();
-	for (my $i = 0; $i < $w; ++$i) {
+	# !!start with 1 because 0 causes error (if 0th column is not empty)
+	for (my $i = 1; $i < $w; ++$i) {
 		#read next column part
 		my @pixels = $img->GetPixels(
 			x     => $i,
@@ -92,7 +94,16 @@ sub get_letters_coord($$$) {
 	}
 	push @columns, -$w unless need_start(\@columns);
 
-	# 2. find accurate y-bounds of each letter 
+	# 2. remove too small lines
+	for (my $i = 0; $i < scalar @columns; $i += 2) {
+		if ($columns[$i+1] + $columns[$i] > -2) {
+			splice @columns, $i, 2; 
+			last unless $i < scalar @columns;
+			redo;
+		}
+	}
+
+	# 3. find accurate y-bounds of each letter 
 	# (remove extra white rows)
 	my @st = ();
 	#say "===> num of columns " . scalar @columns;
@@ -172,6 +183,47 @@ sub preprocess_img($) {
 	return $img;
 }
 
+sub _draw_horiz_lines($$$) {
+	my ($img3, $coord, $file) = @_;
+	my $w = $img3->Get('columns');
+	for (my $i = 0; $i < scalar @$coord; ++$i) {
+		if ($coord->[$i] > 0) {
+			# start red
+			$img3->Draw(fill => '#ffff00008080', primitive => 'line', 
+				points => "0, $coord->[$i], $w, $coord->[$i]");
+		} else {
+			# end
+			my $a = (-1) * $coord->[$i];
+			$img3->Draw(fill =>' #0000ffff8080', primitive => 'line', 
+				points => "0, $a, $w, $a");
+		}
+	}
+	$img3->write($file);
+}
+
+sub _draw_ver_lines($$$) {
+	my ($img, $coord, $start, $end, $file) = @_;
+	my $h = $img->Get('rows');
+	my $w = $img->Get('columns');
+	$img->Draw(fill => 'red', primitive => 'line', 
+		points => "$start 0, $start, $w");
+	$img->Draw(fill => 'blur', primitive => 'line', 
+		points => "$end 0, $end, $w");
+	for (my $i = 0; $i < scalar @$coord; ++$i) {
+		if ($coord->[$i] > 0) {
+			# start
+			$img->Draw(fill => 'red', primitive => 'line', 
+				points => "$coord->[$i], 0, $coord->[$i], $h");
+		} else {
+			# end
+			my $a = (-1) * $coord->[$i];
+			$img->Draw(fill => 'blue', primitive => 'line', 
+				points => "$a, 0, $a, $h");
+		}
+
+	}
+	$img->write($file);
+}
 #------------------------------------
 
 my $alphabet = Alphabet->new();
@@ -180,25 +232,20 @@ $img->Read("img-test-res.jpg"); # good readable black&white picture
 #$img->Read("");
 #preprocess_img($img);
 
-
 my @lines = get_lines_coord($img);
+_draw_horiz_lines($img->Clone(), \@lines, "lines1.jpg");
 print Dumper(\@lines);
-my $img2 = $img->Clone();
-my $www = $img2->Get('columns');
+
+# remove too small lines
 for (my $i = 0; $i < scalar @lines; $i += 2) {
 	if ($lines[$i+1] + $lines[$i] > -4) {
 		splice @lines, $i, 2; 
 		last unless $i < scalar @lines;
 		redo;
 	}
-	$img2->Draw(fill => 'red', primitive => 'line', 
-		points => "0, $lines[$i], $www, $lines[$i]");
-	$img2->Draw(fill => 'blue', primitive => 'line', 
-		points => "0,". (-1)*$lines[$i+1] .", $www," . (-1)*$lines[$i+1]);
 }
+_draw_horiz_lines($img->Clone(), \@lines, "lines2.jpg");
 print Dumper(\@lines);
-$img2->write("img-test-2-res-lines.jpg");
-$img2 = undef;
 
 for (my $i = 0; $i < scalar @lines; $i += 2) {
 	my $letters_coord = get_letters_coord(
@@ -206,10 +253,9 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 		$lines[$i], 
 		(-1) * $lines[$i+1]
 	);
-	say "==> line $i " . $lines[$i];
-	my $white = sum(map {$_->{w}} @$letters_coord)/((scalar @$letters_coord));
-	#say "===> White $white";
-	my $avgh = sum(map {$_->{h}} @$letters_coord)/((scalar @$letters_coord));
+	next if scalar @$letters_coord == 0;
+	my $white = sum(map {$_->{w}} @$letters_coord)/(scalar @$letters_coord);
+	my $avgh = sum(map {$_->{h}} @$letters_coord)/(scalar @$letters_coord);
 	for (my $i = 0; $i < scalar @$letters_coord; ++$i) {
 	#for my $lc (@$letters_coord) {
 		next if $letters_coord->[$i]{h} == 1 || $letters_coord->[$i]{w} == 1;

@@ -122,6 +122,7 @@ sub _load_letters() {
 		$letters->{$i} = \@pixels;
 		undef $image;
 	}
+	say sort  keys %$letters;
 	return $letters;
 }
 
@@ -150,6 +151,18 @@ sub _load_signs() {
 		_v         => 'v',
 		_n         => 'n',
 		_s         => 's',
+		
+		_1         => '1',
+		_2         => '2',
+		_3         => '3',
+		_4         => '4',
+		_5         => '5',
+		_6         => '6',
+		_7         => '7',
+		_8         => '8',
+		_9         => '9',
+
+		_GG        => 'G',
 	};
 }
 
