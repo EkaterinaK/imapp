@@ -284,18 +284,21 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 	#for my $lc (@$letters_coord) {
 		next if $letters_coord->[$i]{h} == 1 || $letters_coord->[$i]{w} == 1;
 		my $pixels_10x10 = get_resized_pixels_10x10($img->Clone(), $letters_coord->[$i]);
-		$letters_coord->[$i]->pix10x10($pixels_10x10);
+		my $p10x10 = join '', map {
+			if ($_ > 0.9) { $_ = 1 }
+			elsif ($_ < 0.1) { $_ = 0 }
+		} @$pixels_10x10;
+		$letters_coord->[$i]->pix10x10($p10x10);
 
-		my $letter = ($letters_coord->[$i]{h} < $avgh/7) 
-					? $alphabet->which_small_sign($pixels_10x10)
-					: $alphabet->which_letter($pixels_10x10);
-		# add whitespaces between words
+		#my $letter = ($letters_coord->[$i]{h} < $avgh/7) 
+		#			? $alphabet->which_small_sign($p10x10)
+		#			: $alphabet->which_letter($p10x10);
+		my $letter = $alphabet->which_symbol($p10x10);		
 		if ($i > 0) {
 			my $d = ($letters_coord->[$i]{x} 
 						- ($letters_coord->[$i-1]{x}
 						    + $letters_coord->[$i-1]{w})
 					)/$white;
-			#print "==> d $d";
 			$str .= " " x int(sprintf("%.1f", $d)) if (sprintf("%d", $d) >1.05);
 		}
 		$str .=  $alphabet->word_to_sign($letter);
