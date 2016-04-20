@@ -7,6 +7,8 @@ use feature qw/say/;
 
 use Letter;
 use Alphabet; 
+use Template::Safeway;
+
 our $ii = 0;
 # use it to decide what we are looking for:
 # a start of a text area or an end of it.
@@ -29,7 +31,7 @@ sub get_lines_coord($) {
 	my $h = $img->Get('rows');
 	my @lines = ();
 	
-	# !! start with 1 because 0 cause error if 0th line is not empty
+	# !! start with 1 because 0 causes error if 0th line is not empty
 	for (my $i = 1; $i < $h; ++$i) {
 		#read next line
 		my @pixels = $img->GetPixels(
@@ -52,6 +54,15 @@ sub get_lines_coord($) {
 		}
 	}
 	push @lines, -$h unless need_start(\@lines);
+	
+	# remove too thin lines
+	for (my $i = 0; $i < scalar @lines; $i += 2) {
+		if ($lines[$i+1] + $lines[$i] > -4) {
+			splice @lines, $i, 2; 
+			last unless $i < scalar @lines;
+			redo;
+		}
+	}
 	return @lines;
 }
 
@@ -226,40 +237,54 @@ sub _draw_ver_lines($$$) {
 }
 #------------------------------------
 
-my $alphabet = Alphabet->new();
 my $img = Image::Magick->new();
 $img->Read("img-test-res.jpg"); # good readable black&white picture
+#$img->Read("cut.jpg"); # good readable black&white picture
 #$img->Read("");
 #preprocess_img($img);
 
+my $alphabet = Alphabet->new();
+
 my @lines = get_lines_coord($img);
-_draw_horiz_lines($img->Clone(), \@lines, "lines1.jpg");
-print Dumper(\@lines);
+#_draw_horiz_lines($img->Clone(), \@lines, "lines1.jpg");
 
-# remove too small lines
+my $template = Template::Safeway->new();
+$template->width($img->Get('columns'));
+
+# primary rough recognition
+my @preproc_lines = ();
 for (my $i = 0; $i < scalar @lines; $i += 2) {
-	if ($lines[$i+1] + $lines[$i] > -4) {
-		splice @lines, $i, 2; 
-		last unless $i < scalar @lines;
-		redo;
+	my ($x0, $x1) = ($lines[$i], (-1) * $lines[$i+1]);
+	my $valid;
+	if ($i == 0) {
+		$template->line_height($x1 - $x0 + 1);
+		$valid = [1, undef];
 	}
-}
-_draw_horiz_lines($img->Clone(), \@lines, "lines2.jpg");
-print Dumper(\@lines);
+	else {
+		$valid = $template->is_valid_line($x0, $x1);
+	}
 
-for (my $i = 0; $i < scalar @lines; $i += 2) {
+	unless($valid->[0]) {
+		# invalid line
+		say "INVALID (" . $valid->[1] . ")";
+		next;
+	}
+
 	my $letters_coord = get_letters_coord(
 		$img, 
 		$lines[$i], 
 		(-1) * $lines[$i+1]
 	);
 	next if scalar @$letters_coord == 0;
+
 	my $white = sum(map {$_->{w}} @$letters_coord)/(scalar @$letters_coord);
 	my $avgh = sum(map {$_->{h}} @$letters_coord)/(scalar @$letters_coord);
+	my $str = "";
 	for (my $i = 0; $i < scalar @$letters_coord; ++$i) {
 	#for my $lc (@$letters_coord) {
 		next if $letters_coord->[$i]{h} == 1 || $letters_coord->[$i]{w} == 1;
 		my $pixels_10x10 = get_resized_pixels_10x10($img->Clone(), $letters_coord->[$i]);
+		$letters_coord->[$i]->pix10x10($pixels_10x10);
 
 		my $letter = ($letters_coord->[$i]{h} < $avgh/7) 
 					? $alphabet->which_small_sign($pixels_10x10)
@@ -271,9 +296,35 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 						    + $letters_coord->[$i-1]{w})
 					)/$white;
 			#print "==> d $d";
-			print " " x int(sprintf("%.1f", $d)) if (sprintf("%d", $d) >1.05);
+			$str .= " " x int(sprintf("%.1f", $d)) if (sprintf("%d", $d) >1.05);
 		}
-		print $alphabet->word_to_sign($letter);
+		$str .=  $alphabet->word_to_sign($letter);
 	}
-	print "\n";
+	push @preproc_lines, {str => $str, coords => $letters_coord};
+	print "$str\n";
 }
+
+my @line_types = ();
+for my $pl (@preproc_lines) {
+	if ($template->is_header($pl)) {
+		push @line_types, 'header';
+	}
+	elsif ($template->is_regprice($pl->{str})) {
+		push @line_types, 'regprice';
+	}
+	elsif ($template->is_creditcard($pl->{str})) {
+		push @line_types, 'creditcard';
+	}
+	elsif ($template->is_weight($pl->{str})) {
+		push @line_types, 'weight';
+	}
+	elsif ($template->is_taxbal($pl->{str})) {
+		push @line_types, 'taxbal';
+	}
+	else {
+		push @line_types, '?';
+	}
+}
+say Dumper(\@line_types);
+my @a = $template->fill_line_types(\@line_types);
+say Dumper(\@a);
