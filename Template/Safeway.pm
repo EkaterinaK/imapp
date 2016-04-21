@@ -93,6 +93,18 @@ sub fill_line_types($) {
 	return @$line_types;
 }
 
+sub split_idx($) {
+	my ($self, $line) = @_;
+	my @res = ();
+	my $i = 0;
+	my @words = split /\s+/, $line->{str};
+	for my $w (@words) {
+		push @res, [ $i, $i + length($w) -1];
+		$i += length($w) ;
+	}
+	return @res;
+}
+
 #-------- PRIVATE --------
 
 sub _load_headers() {

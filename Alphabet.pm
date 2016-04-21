@@ -17,6 +17,9 @@ has 'digits' => (is => 'ro', isa => 'HashRef', init_arg => undef,
 has 'punct' => (is => 'ro', isa => 'HashRef', init_arg => undef,
 	builder => '_load_punct', lazy => 1, );
 
+has 'points' => (is => 'rw', isa => 'HashRef', init_arg => undef,
+lazy =>0 , );
+
 has 'all_symbols' => (is => 'ro', isa => 'HashRef', init_arg => undef,
 	builder => '_get_all_symbols', lazy => 1, );
 
@@ -49,6 +52,49 @@ has 'small_signs' => (
 sub which_symbol($) {
 	my ($self, $v) = @_;
 	my $letters = $self->all_symbols;
+	my $res = {};
+	for my $k (keys %$letters) {
+		my $dist = $self->distance($k, $v);
+		if (!defined $res->{dist} or $res->{dist} > $dist) {
+			$res->{dist} = $dist;
+			$res->{let} = $letters->{$k};
+		}
+	}
+	return $res->{let};
+}
+
+sub which_letter($) {
+	my ($self, $v) = @_;
+	my $letters = $self->letters;
+	my $res = {};
+	for my $k (keys %$letters) {
+		my $dist = $self->distance($k, $v);
+		if (!defined $res->{dist} or $res->{dist} > $dist) {
+			$res->{dist} = $dist;
+			$res->{let} = $letters->{$k};
+		}
+	}
+	return $res->{let};
+}
+
+sub which_digit($) {
+	my ($self, $v) = @_;
+	my $letters = $self->digits;
+	my $res = {};
+	for my $k (keys %$letters) {
+		my $dist = $self->distance($k, $v);
+		if (!defined $res->{dist} or $res->{dist} > $dist) {
+			$res->{dist} = $dist;
+			$res->{let} = $letters->{$k};
+		}
+	}
+	return $res->{let};
+}
+
+# for price
+sub which_digit_or_point($) {
+	my ($self, $v) = @_;
+	my $letters = {%{$self->digits}, %{$self->points}};
 	my $res = {};
 	for my $k (keys %$letters) {
 		my $dist = $self->distance($k, $v);
@@ -187,6 +233,7 @@ sub _load_punct() {
 	closedir($dh);
 	my $image;
 	my $punct = {};
+	my $points = {};
 	for my $i (@arr) {
 		$image = Image::Magick->new();
 		$image->Read($path . "$i.jpg");
@@ -203,7 +250,11 @@ sub _load_punct() {
 		my $p = join "", @pixels;
 		$punct->{$p} = $i;
 		undef $image;
+		if ($i =~ /point/) {
+			$points->{$p} = $i;
+		}
 	}
+	$self->points($points);
 	return $punct;
 }
 

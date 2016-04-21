@@ -114,15 +114,21 @@ sub get_letters_coord($$$) {
 		}
 	}
 
+	# 2.1 join parts of one letter
+	for (my $i = 0; $i < scalar(@columns) - 3; $i += 2) {
+		if ($columns[$i+1] + $columns[$i+2] <= 2) {
+			splice @columns, $i+1, 2;
+			last unless $i < scalar(@columns) - 3;
+			redo;
+		}
+	}
+
 	# 3. find accurate y-bounds of each letter 
 	# (remove extra white rows)
 	my @st = ();
-	#say "===> num of columns " . scalar @columns;
-	#say Dumper(\@columns) if scalar @columns == 2;
 	for (my $i = 0; $i < scalar @columns; $i+=2) {
-		#each letter
+		# each letter
 		my $ww = (-1)* $columns[$i+1] - $columns[$i] + 1;
-		#say "==> ww $ww";
 		for (my $j = $start_y; $j <= $end_y; ++$j) { 
 			# each rows in a letter
 			my @pixels = $img->GetPixels(
@@ -136,16 +142,27 @@ sub get_letters_coord($$$) {
 			if (need_start(\@st)) {
 				if (sum(@pixels) <= $ww - 1) {
 					push @st, $j;
+					last; #we need only one start here
 				}
 			}
-			else {
-				# need end
-				if (sum(@pixels) > $ww - 1) {
-					push @st, (-1) * ($j-1);
+		}
+		for (my $j = $end_y; $j >= $start_y; --$j) {
+			# each rows in a letter
+			my @pixels = $img->GetPixels(
+				x      => $columns[$i],
+				y      => $j,
+				height => 1,
+				width  => $ww,
+				map    => 'I',
+				normalize => 1,
+			);
+			unless (need_start(\@st)) {
+				if (sum(@pixels) <= $ww - 1) {
+					push @st, -$j;
+					last; # we need only one end here
 				}
 			}
 		}		
-		push @st, (-1) *  $end_y unless need_start(\@st);
 	}
 
 	# 3. get coordinates of letters
@@ -235,6 +252,29 @@ sub _draw_ver_lines($$$) {
 	}
 	$img->write($file);
 }
+
+sub _draw_borders {
+	my ($img, $letters, $file) = @_;
+	for my $a (@$letters) {
+		my $x0 = $a->{x};
+		my $y0 = $a->{y};
+		my $x1 = $x0 + $a->{w};
+		my $y1 = $y0 + $a->{h};
+		#top
+		$img->Draw(fill => 'red', primitive => 'line', 
+			points => "$x0, $y0, $x1, $y0");
+		#bottom
+		$img->Draw(fill => 'red', primitive => 'line', 
+			points => "$x0, $y1, $x1, $y1");
+		#left
+		$img->Draw(fill => 'red', primitive => 'line', 
+			points => "$x0, $y0, $x0, $y1");
+		#right
+		$img->Draw(fill => 'red', primitive => 'line', 
+			points => "$x1, $y0, $x1, $y1");
+	}
+	$img->write($file);
+}
 #------------------------------------
 
 my $img = Image::Magick->new();
@@ -276,6 +316,8 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 		(-1) * $lines[$i+1]
 	);
 	next if scalar @$letters_coord == 0;
+
+	_draw_borders($img->Clone(), $letters_coord, "borders2_$i.jpg");
 
 	my $white = sum(map {$_->{w}} @$letters_coord)/(scalar @$letters_coord);
 	my $avgh = sum(map {$_->{h}} @$letters_coord)/(scalar @$letters_coord);
@@ -331,3 +373,67 @@ for my $pl (@preproc_lines) {
 say Dumper(\@line_types);
 my @a = $template->fill_line_types(\@line_types);
 say Dumper(\@a);
+
+my $i = 0;
+my $header = '';
+my $name = '';
+my $price = 0;
+
+# final processing
+while($i < scalar @preproc_lines) {
+	my @idx = $template->split_idx($preproc_lines[$i]);
+	#say Dumper(\@idx);
+	if ($line_types[$i] eq 'header') {
+		$header = '';
+		for my $s (@{$preproc_lines[$i]->{coords}}) {
+			$header .= $alphabet->which_letter($s->{pix10x10});
+		}
+		# TODO header validation
+		++$i;
+		next;
+	}
+	elsif($line_types[$i] eq 'item') {
+		$price = '';
+		$name = '';
+		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+			? scalar @idx - 1 
+			: scalar @idx - 2;
+		say "idx_price: " . $idx_price; 
+		for (my $j = 0; $j < scalar @idx; ++$j) {
+			if ($j == $idx_price) {
+				# parse price
+				for (my $k = $idx[$j][0]; $k <= $idx[$j][1]; ++$k) {
+					my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+					#DUMP
+					if ($idx_price == 4) {
+						#for (my $n = 0; $n < 10; ++$n) {
+						#	say "$n) " . substr $pix, $n, 10;
+						#}
+						#say Dumper($preproc_lines[$i]->{coords}[$k]);
+					}
+					my $d = $alphabet->which_digit_or_point($pix);
+					$price .= $alphabet->word_to_sign($d);
+				}
+			}
+			elsif ($j < $idx_price) {
+				# parse name
+				for (my $k = $idx[$j][0]; $k <= $idx[$j][1]; ++$k) {
+					my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+					$name .= $alphabet->which_letter($pix);
+				}
+				$name .= " ";
+			}
+			# and don't parse the last letter after price (F/T)
+		}
+		say "HEADER: " . $header;
+		say "NAME: " . $name;
+		say "PRICE: " . $price;
+		say "------";
+		++$i; 
+		next;
+	}
+	else {
+		say "> OTHER";
+		++$i; next;
+	}
+}
