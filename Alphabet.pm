@@ -106,6 +106,20 @@ sub which_digit_or_point($) {
 	return $res->{let};
 }
 
+# for date+time
+sub which_digit_or_punct($) {
+	my ($self, $v) = @_;
+	my $letters = {%{$self->digits}, %{$self->punct}};
+	my $res = {};
+	for my $k (keys %$letters) {
+		my $dist = $self->distance($k, $v);
+		if (!defined $res->{dist} or $res->{dist} > $dist) {
+			$res->{dist} = $dist;
+			$res->{let} = $letters->{$k};
+		}
+	}
+	return $res->{let};
+}
 sub which_small_sign($) {
 	my ($self, $v) = @_;
 	my $s = $self->small_signs;
@@ -248,6 +262,7 @@ sub _load_punct() {
 			normalize => 1,
 		);
 		my $p = join "", @pixels;
+		$i =~ s/_{2,}/_/g;
 		$punct->{$p} = $i;
 		undef $image;
 		if ($i =~ /point/) {

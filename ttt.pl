@@ -8,6 +8,7 @@ use feature qw/say/;
 use Letter;
 use Alphabet; 
 use Template::Safeway;
+use Product;
 
 our $ii = 0;
 # use it to decide what we are looking for:
@@ -378,6 +379,13 @@ my $i = 0;
 my $header = '';
 my $name = '';
 my $price = 0;
+my $regprice = 0;
+my $cardsavings = 0;
+my $creditcard = 0;
+my $change = 0;
+my $date = 0;
+my $product = undef;
+my @products = ();
 
 # final processing
 while($i < scalar @preproc_lines) {
@@ -393,6 +401,8 @@ while($i < scalar @preproc_lines) {
 		next;
 	}
 	elsif($line_types[$i] eq 'item') {
+		push @products, $product if defined $product;
+		$product = undef;
 		$price = '';
 		$name = '';
 		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
@@ -425,6 +435,8 @@ while($i < scalar @preproc_lines) {
 			}
 			# and don't parse the last letter after price (F/T)
 		}
+		$product = Product->new(
+			name => $name, price => $price, category => $header);
 		say "HEADER: " . $header;
 		say "NAME: " . $name;
 		say "PRICE: " . $price;
@@ -432,8 +444,86 @@ while($i < scalar @preproc_lines) {
 		++$i; 
 		next;
 	}
+	elsif($line_types[$i] eq 'regprice') {
+		$regprice = '';
+		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+			? scalar @idx - 1 
+			: scalar @idx - 2;
+		# parse regprice
+		for (my $k = $idx[$idx_price][0]; $k <= $idx[$idx_price][1]; ++$k) {
+			my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+			my $d = $alphabet->which_digit_or_point($pix);
+			$regprice .= $alphabet->word_to_sign($d);
+		}
+		if (defined $product) {$product->regprice($regprice);}
+		say "REGPRICE: " . $regprice;	
+		++$i;
+		next;
+	}
+	elsif($line_types[$i] eq 'cardsavings') {
+		$cardsavings = '';
+		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+			? scalar @idx - 1 
+			: scalar @idx - 2;
+		# parse cardsavings
+		for (my $k = $idx[$idx_price][0]; $k < $idx[$idx_price][1]; ++$k) {
+			my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+			my $d = $alphabet->which_digit_or_point($pix);
+			$cardsavings .= $alphabet->word_to_sign($d);
+		}
+		if (defined $product) {$product->discount($cardsavings);}
+		say "CARDSAVINGS: " . $cardsavings;	
+		++$i;
+		next;
+	}
+	elsif($line_types[$i] eq 'creditcard') {
+		$creditcard = '';
+		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+			? scalar @idx - 1 
+			: scalar @idx - 2;
+		# parse total price
+		for (my $k = $idx[$idx_price][0]; $k <= $idx[$idx_price][1]; ++$k) {
+			my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+			my $d = $alphabet->which_digit_or_point($pix);
+			$creditcard .= $alphabet->word_to_sign($d);
+		}
+		say "TOTAL: " . $creditcard;	
+		++$i;
+		next;
+	}
+	elsif($line_types[$i] eq 'change') {
+		$change = '';
+		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+			? scalar @idx - 1 
+			: scalar @idx - 2;
+		# parse total price
+		for (my $k = $idx[$idx_price][0]; $k <= $idx[$idx_price][1]; ++$k) {
+			my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+			my $d = $alphabet->which_digit_or_point($pix);
+			$change .= $alphabet->word_to_sign($d);
+		}
+		say "CHANGE: " . $change;	
+		++$i;
+		next;
+	}
+	elsif($line_types[$i] eq 'date') {
+		$date = '';
+		for (my $j = 0; $j < 2; ++$j) {
+			# parse date, then time 
+			for (my $k = $idx[$j][0]; $k <= $idx[$j][1]; ++$k) {
+				my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+				my $d .= $alphabet->which_digit_or_punct($pix);
+				$date .= $alphabet->word_to_sign($d);
+			}
+			$date .= " ";
+		}
+		say "DATE: " . $date;
+		++$i;
+		next;
+	}
 	else {
 		say "> OTHER";
 		++$i; next;
 	}
 }
+say Dumper(\@products);
