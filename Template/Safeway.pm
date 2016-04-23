@@ -48,6 +48,9 @@ sub is_header($) {
 
 sub is_regprice($) {
 	my ($self, $str) = @_;
+	# 1. check regexp
+	my $m = lc($str) =~ /price/i;
+	# 2. check distance
 	my @rp = qw/r e g p r i c e/;
 	$str = substr lc($str), 0, 7;
 	my @s = split //, $str;
@@ -55,7 +58,9 @@ sub is_regprice($) {
 	for (my $i = 0; $i < scalar @s; ++$i) {
 		++$mismatch if $s[$i] ne $rp[$i];
 	}
-	return 1 if $mismatch <= 2;
+	return 1 if ($mismatch <= 2 or $m);
+#	$str = lc($str);
+#	return $str =~ /price/i;
 	return 0;
 }
 

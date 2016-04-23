@@ -181,12 +181,34 @@ sub get_letters_coord($$$) {
 
 sub get_resized_pixels_10x10($$) {
 	my ($img, $lc) = @_;
+	#say "in func - lc: " . Dumper($lc);
+	#say "in func - img: " . Dumper($img);
+	#say "x: " . $lc->x;
+	#say "y: " . $lc->y;
+	#say "w: " . $lc->w;
+	#say "h: " . $lc->h;
+	#$img->write("in-func.jpg");
+	#$img->Set(page=> $img->Get('columns')."x".$img->Get('rows')."+0+0");
+	#$img->Set(page=> "0x0+0+0");
+	#say "Before crop: width: " . $img->Get('columns'),
+#		", height: " . $img->Get('rows'),
+#		" page={x:", $img->Get('page.x'), ",y:",$img->Get('page.y'),"}";
+#	my %args = (
+#		x      => int($lc->x),
+#		y      => int($lc->y),
+#		width  => int($lc->w),
+#		height => int($lc->h),
+#	);
+#	say "Crop args: ", Dumper(\%args);
 	$img->Crop(
-		x      => $lc->x(),
-		y      => $lc->y(),
-		width  => $lc->w(),
-		height => $lc->h(),
+		width  => $lc->w,
+		height => $lc->h,
+		x      => $lc->x,
+		y      => $lc->y,
 	);
+	#say "width: " . $img->Get('columns');
+	#say "height: " . $img->Get('rows');
+	$img->write("t/crop".++$ii. ".jpg");
 	$img->Resize(geometry => "10x10!"); # ignore aspect ratio
 	$img->BlackThreshold("50%");
 	$img->WhiteThreshold("50%");
@@ -378,6 +400,7 @@ for (my $i = 0; $i < scalar @valid_img_parts; ++$i) {
 say Dumper($img1);
 
 my $img2 = $img1->Append(stack=> 1);
+$img2->Set(page=> "0x0+0+0");
 $img2->write("appended.jpg");
 
 @lines = get_lines_coord($img2);
@@ -399,27 +422,28 @@ sub valid_img($) {
 	}
 	return $res;
 }
-__END__
-$img = $img2;
+$img = undef;
+$img = $img2->Clone();
 
 # primary rough recognition
 my @preproc_lines = ();
 for (my $i = 0; $i < scalar @lines; $i += 2) {
+#for (my $i = 0; $i < 2; $i += 2) {
 	my ($x0, $x1) = ($lines[$i], (-1) * $lines[$i+1]);
-	my $valid;
-	if ($i == 0) {
-		$template->line_height($x1 - $x0 + 1);
-		$valid = [1, undef];
-	}
-	else {
-		$valid = $template->is_valid_line($x0, $x1);
-	}
-
-	unless($valid->[0]) {
-		# invalid line
-		say "INVALID (" . $valid->[1] . ")";
-		next;
-	}
+#	my $valid;
+#	if ($i == 0) {
+#		$template->line_height($x1 - $x0 + 1);
+#		$valid = [1, undef];
+#	}
+#	else {
+#		$valid = $template->is_valid_line($x0, $x1);
+#	}
+#
+#	unless($valid->[0]) {
+#		# invalid line
+#		say "INVALID (" . $valid->[1] . ")";
+#		next;
+#	}
 
 	my $letters_coord = get_letters_coord(
 		$img, 
@@ -428,8 +452,7 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 	);
 	next if scalar @$letters_coord == 0;
 
-	#_draw_borders($img->Clone(), $letters_coord, "borders2_$i.jpg");
-
+	_draw_borders($img->Clone(), $letters_coord, "borders-new_$i.jpg");
 	my $white = sum(map {$_->{w}} @$letters_coord)/(scalar @$letters_coord);
 	my $avgh = sum(map {$_->{h}} @$letters_coord)/(scalar @$letters_coord);
 	my $str = "";
@@ -621,6 +644,12 @@ while($i < scalar @preproc_lines) {
 			$date .= " ";
 		}
 		say "DATE: " . $date;
+		++$i;
+		next;
+	}
+	elsif($line_types[$i] eq 'taxbal') {
+		push @products, $product if defined $product;
+		$product = undef;
 		++$i;
 		next;
 	}
