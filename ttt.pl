@@ -276,6 +276,37 @@ sub _draw_borders {
 	}
 	$img->write($file);
 }
+
+# $img - copy of original image
+# $y0 - first x-coord of bad area
+# $y1 - last x-coord of bad area  
+sub crop_img($$$) {
+	my ($img, $y0, $y1) = @_;
+	$img->Crop(x => 0, y => $y0, width => $img->Get('columns'), 
+				height => $y1 - $y0 + 1);
+	return $img;
+}
+
+# $img - copy of original image
+# $y0 - first x-coord of bad area
+# $y1 - last x-coord of bad area  
+sub rotate_img($$$) {
+	my ($img, $y0, $y1) = @_;
+	$img->Crop(x => 0, y => $y0, width => $img->Get('columns'), height => $y1 - $y0 + 1);
+	my @degrees = (0.5, 0.1, 0.2, 0.2, 0.2, -1.4, -0.3, -0.2, -0.2, -0.2);
+	#for (my $i = 0; $i < scalar @degrees; ++$i) {
+	for my $d (@degrees) {
+		say "d = $d";
+		$img->Rotate(degrees => $d, background => 'white');
+		if (valid_img($img)) {
+			say "img is now valid";
+			_draw_horiz_lines($img->Clone(), [get_lines_coord($img)], "rotated_$y0.jpg"); 
+			last;
+		}
+	}
+	return $img;
+}
+
 #------------------------------------
 
 my $img = Image::Magick->new();
@@ -291,6 +322,85 @@ my @lines = get_lines_coord($img);
 
 my $template = Template::Safeway->new();
 $template->width($img->Get('columns'));
+$template->line_height(-$lines[1] - $lines[0] + 1); # first line must be OK.
+
+my @valid_img;
+my @valid_img_parts = ();
+my ($valid_start, $valid_end) = (undef, undef);
+# validate lines
+for (my $i = 0; $i < scalar @lines; $i += 2) {
+	my ($y0, $y1) = ($lines[$i], (-1) * $lines[$i+1]);
+	my $valid = $template->is_valid_line($y0, $y1);
+
+	if($valid->[0]) { 
+		if (!defined $valid_start) { 
+			$valid_start = $lines[$i]; 
+			say "valid start $valid_start";	
+		}
+		if ($i+1 == scalar(@lines) - 1) { 
+			say "last part";
+			$valid_end = -$lines[$i+1];
+			say "valid end $valid_end";
+			push @valid_img_parts, crop_img($img->Clone(), 
+					$valid_start, $valid_end);
+		}
+	}
+	else {
+		# invalid line
+		say "INVALID (" . $valid->[1] . ")";
+		if (defined $valid_start) {
+			$valid_end = -$lines[$i-1];
+			say "valid end $valid_end";
+			push @valid_img_parts, 
+				crop_img($img->Clone(), $valid_start, $valid_end);
+			$valid_start = undef;
+			$valid_end = undef;
+		}
+		if ($valid->[1] eq 'big') {
+			my $img_new = rotate_img($img->Clone(), $y0, $y1);
+			$img_new->write("rotated_$i.jpg");
+			say "img written";
+			push @valid_img_parts, $img_new;
+			#next;
+		}
+		elsif ($valid->[1] eq 'small') {
+			say "skipped small";
+		}
+		say "------";
+	}
+}
+say Dumper(\@valid_img_parts);
+my $img1 = Image::Magick->new(\@valid_img_parts);
+for (my $i = 0; $i < scalar @valid_img_parts; ++$i) {
+	#$valid_img_parts[$i]->write("p-$i.jpg");
+	$img1->[$i] = $valid_img_parts[$i][0];
+}
+say Dumper($img1);
+
+my $img2 = $img1->Append(stack=> 1);
+$img2->write("appended.jpg");
+
+@lines = get_lines_coord($img2);
+_draw_horiz_lines($img2->Clone(), \@lines, "appened-lines.jpg"); 
+
+
+sub valid_img($) {
+	my ($img) = @_;
+	my @lines = get_lines_coord($img);
+	say Dumper(\@lines);
+	my $res = 1;
+	for (my $i = 0; $i < scalar @lines; $i += 2) {
+		my ($y0, $y1) = ($lines[$i], -$lines[$i+1]);
+		my $valid = $template->is_valid_line($y0, $y1);
+		unless($valid->[0]) { 
+			$res = 0; 
+			last; 
+		}
+	}
+	return $res;
+}
+__END__
+$img = $img2;
 
 # primary rough recognition
 my @preproc_lines = ();
@@ -318,7 +428,7 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 	);
 	next if scalar @$letters_coord == 0;
 
-	_draw_borders($img->Clone(), $letters_coord, "borders2_$i.jpg");
+	#_draw_borders($img->Clone(), $letters_coord, "borders2_$i.jpg");
 
 	my $white = sum(map {$_->{w}} @$letters_coord)/(scalar @$letters_coord);
 	my $avgh = sum(map {$_->{h}} @$letters_coord)/(scalar @$letters_coord);
@@ -414,13 +524,6 @@ while($i < scalar @preproc_lines) {
 				# parse price
 				for (my $k = $idx[$j][0]; $k <= $idx[$j][1]; ++$k) {
 					my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
-					#DUMP
-					if ($idx_price == 4) {
-						#for (my $n = 0; $n < 10; ++$n) {
-						#	say "$n) " . substr $pix, $n, 10;
-						#}
-						#say Dumper($preproc_lines[$i]->{coords}[$k]);
-					}
 					my $d = $alphabet->which_digit_or_point($pix);
 					$price .= $alphabet->word_to_sign($d);
 				}
