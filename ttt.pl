@@ -392,7 +392,7 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 	}
 }
 say Dumper(\@valid_img_parts);
-my $img1 = Image::Magick->new(\@valid_img_parts);
+my $img1 = Image::Magick->new();
 for (my $i = 0; $i < scalar @valid_img_parts; ++$i) {
 	#$valid_img_parts[$i]->write("p-$i.jpg");
 	$img1->[$i] = $valid_img_parts[$i][0];
@@ -404,7 +404,7 @@ $img2->Set(page=> "0x0+0+0");
 $img2->write("appended.jpg");
 
 @lines = get_lines_coord($img2);
-_draw_horiz_lines($img2->Clone(), \@lines, "appened-lines.jpg"); 
+#_draw_horiz_lines($img2->Clone(), \@lines, "appened-lines.jpg"); 
 
 
 sub valid_img($) {
@@ -428,23 +428,7 @@ $img = $img2->Clone();
 # primary rough recognition
 my @preproc_lines = ();
 for (my $i = 0; $i < scalar @lines; $i += 2) {
-#for (my $i = 0; $i < 2; $i += 2) {
 	my ($x0, $x1) = ($lines[$i], (-1) * $lines[$i+1]);
-#	my $valid;
-#	if ($i == 0) {
-#		$template->line_height($x1 - $x0 + 1);
-#		$valid = [1, undef];
-#	}
-#	else {
-#		$valid = $template->is_valid_line($x0, $x1);
-#	}
-#
-#	unless($valid->[0]) {
-#		# invalid line
-#		say "INVALID (" . $valid->[1] . ")";
-#		next;
-#	}
-
 	my $letters_coord = get_letters_coord(
 		$img, 
 		$lines[$i], 
@@ -517,6 +501,7 @@ my $cardsavings = 0;
 my $creditcard = 0;
 my $change = 0;
 my $date = 0;
+my $tax = 0;
 my $product = undef;
 my @products = ();
 
@@ -650,6 +635,23 @@ while($i < scalar @preproc_lines) {
 	elsif($line_types[$i] eq 'taxbal') {
 		push @products, $product if defined $product;
 		$product = undef;
+		++$i;
+		next;
+	}
+	elsif($line_types[$i] eq 'tax') {
+		push @products, $product if defined $product;
+		$product = undef;
+		$tax = '';
+		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+			? scalar @idx - 1 
+			: scalar @idx - 2;
+		# parse tax
+		for (my $k = $idx[$idx_price][0]; $k <= $idx[$idx_price][1]; ++$k) {
+			my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+			my $d = $alphabet->which_digit_or_point($pix);
+			$tax .= $alphabet->word_to_sign($d);
+		}
+		say "TAX: " . $tax;
 		++$i;
 		next;
 	}

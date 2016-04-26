@@ -85,8 +85,16 @@ sub is_taxbal($) {
 sub fill_line_types($) {
 	my ($self, $line_types) = @_;
 	for (my $i = 0; $i < scalar @$line_types; ++$i) {
+		if ($line_types->[$i] eq 'taxbal' &&
+				defined($line_types->[$i+1]) &&
+				$line_types->[$i+1] eq 'taxbal') {
+			$line_types->[$i] = 'tax';
+			next;
+		}
 		next if $line_types->[$i] ne '?';
-		if (defined ($line_types->[$i+1]) && $line_types->[$i+1] eq 'regprice') {$line_types->[$i] = 'item'}
+		if (defined ($line_types->[$i+1]) && $line_types->[$i+1] eq 'regprice') {
+			$line_types->[$i] = 'item';
+		}
 		elsif ($line_types->[$i-1] eq 'regprice') {$line_types->[$i] = 'cardsavings'}
 		elsif ($line_types->[$i-1] eq 'weight') {$line_types->[$i] = 'item'}
 		elsif ($line_types->[$i-1] eq 'creditcard') {$line_types->[$i] = 'change'}
