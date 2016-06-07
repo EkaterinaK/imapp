@@ -8,8 +8,11 @@ use Data::Dumper;
 use feature qw/say/;
 use experimental qw/bitwise/;
 
-has 'letters' => (is => 'ro', isa => 'HashRef',	init_arg => undef, 
-	builder => '_load_letters', lazy => 1, );
+has 'letters_lc' => (is => 'ro', isa => 'HashRef',init_arg => undef, 
+	builder => '_load_letters_lc', lazy => 1, );
+
+has 'letters_uc' => (is => 'ro', isa => 'HashRef',init_arg => undef, 
+	builder => '_load_letters_uc', lazy => 1, );
 
 has 'digits' => (is => 'ro', isa => 'HashRef', init_arg => undef,
 	builder => '_load_digits', lazy => 1, );
@@ -23,8 +26,11 @@ lazy =>0 , );
 has 'all_symbols' => (is => 'ro', isa => 'HashRef', init_arg => undef,
 	builder => '_get_all_symbols', lazy => 1, );
 
-has 'letters_path' => (is => 'ro', isa => 'Str', required => 1, 
-	default=>'letters10x10/', );
+has 'letters_lc_path' => (is => 'ro', isa => 'Str', required => 1, 
+	default=>'letters10x10_lc/', );
+
+has 'letters_uc_path' => (is => 'ro', isa => 'Str', required => 1, 
+	default=>'letters10x10_uc/', );
 
 has 'digits_path' => (is => 'ro', isa => 'Str', required => 1, 
 	default=>'digits10x10/', );
@@ -65,7 +71,20 @@ sub which_symbol($) {
 
 sub which_letter($) {
 	my ($self, $v) = @_;
-	my $letters = $self->letters;
+	my $letters = {%{$self->letters_uc}, %{$self->letters_lc}};
+	my $res = {};
+	for my $k (keys %$letters) {
+		my $dist = $self->distance($k, $v);
+		if (!defined $res->{dist} or $res->{dist} > $dist) {
+			$res->{dist} = $dist;
+			$res->{let} = $letters->{$k};
+		}
+	}
+	return $res->{let};
+}
+sub which_letter_uc($) {
+	my ($self, $v) = @_;
+	my $letters = $self->letters_uc;
 	my $res = {};
 	for my $k (keys %$letters) {
 		my $dist = $self->distance($k, $v);
@@ -77,6 +96,19 @@ sub which_letter($) {
 	return $res->{let};
 }
 
+sub which_letter_uc_or_digit($) {
+	my ($self, $v) = @_;
+	my $letters = {%{$self->letters_uc}, %{$self->digits}};
+	my $res = {};
+	for my $k (keys %$letters) {
+		my $dist = $self->distance($k, $v);
+		if (!defined $res->{dist} or $res->{dist} > $dist) {
+			$res->{dist} = $dist;
+			$res->{let} = $letters->{$k};
+		}
+	}
+	return $res->{let};
+}
 sub which_digit($) {
 	my ($self, $v) = @_;
 	my $letters = $self->digits;
@@ -174,26 +206,57 @@ sub distance2($$) {
 	return 2;
 }
 
-sub _load_letters() {
+sub _load_letters_lc() {
 	my ($self) = @_;
-	my $path = $self->letters_path;
-	opendir(my $dh, $path) or die "Can't open a dir $path ($!)";
+	my $path = $self->letters_lc_path;
+	opendir(my $dh, $path) or die "can't open a dir $path ($!)";
 	my @arr = map {/^(.+).jpg/} grep {/.jpg/} readdir($dh);
 	closedir($dh);
 	my $image;
 	my $letters = {};
 	for my $i (@arr) {
 		$image = Image::Magick->new();
-		#$image->Read("letters10x10/$i.jpg");
-		$image->Read($path . "$i.jpg");
-		my $w = $image->Get('columns');
-		my $h = $image->Get('rows');
-		my @pixels = map { if ($_ > 0.9) { $_ = 1} elsif ($_ < 0.1) { $_ = 0} } $image->GetPixels(
+		$image->read($path . "$i.jpg");
+		my $w = $image->get('columns');
+		my $h = $image->get('rows');
+		my @pixels = map { if ($_ > 0.9) { $_ = 1} elsif ($_ < 0.1) { $_ = 0} } $image->getpixels(
 			x => 0,
 			y => 0,
 			width => $w,
 			height => $h,
-			map => 'I',
+			map => 'i',
+			normalize => 1,
+		);
+		my $p = join "", @pixels;
+		if(length($i) > 1) {
+			$i =~ s/_//g;
+			$i =~ /(.)/ and $i = $1;
+		}
+		$letters->{$p} = $i;
+		undef $image;
+	}
+	return $letters;
+}
+
+sub _load_letters_uc() {
+	my ($self) = @_;
+	my $path = $self->letters_uc_path;
+	opendir(my $dh, $path) or die "can't open a dir $path ($!)";
+	my @arr = map {/^(.+).jpg/} grep {/.jpg/} readdir($dh);
+	closedir($dh);
+	my $image;
+	my $letters = {};
+	for my $i (@arr) {
+		$image = Image::Magick->new();
+		$image->read($path . "$i.jpg");
+		my $w = $image->get('columns');
+		my $h = $image->get('rows');
+		my @pixels = map { if ($_ > 0.9) { $_ = 1} elsif ($_ < 0.1) { $_ = 0} } $image->getpixels(
+			x => 0,
+			y => 0,
+			width => $w,
+			height => $h,
+			map => 'i',
 			normalize => 1,
 		);
 		my $p = join "", @pixels;
@@ -275,7 +338,7 @@ sub _load_punct() {
 
 sub _get_all_symbols() {
 	my ($self) = @_;
-	return { %{$self->letters}, %{$self->digits}, %{$self->punct}};
+	return { %{$self->letters_lc}, %{$self->letters_uc}, %{$self->digits}, %{$self->punct}};
 }
 
 sub _load_signs() {

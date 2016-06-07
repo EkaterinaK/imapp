@@ -312,21 +312,37 @@ sub crop_img($$$) {
 # $img - copy of original image
 # $y0 - first x-coord of bad area
 # $y1 - last x-coord of bad area  
-sub rotate_img($$$) {
-	my ($img, $y0, $y1) = @_;
+sub rotate_img($$$$) {
+	my ($img, $y0, $y1, $template) = @_;
 	$img->Crop(x => 0, y => $y0, width => $img->Get('columns'), height => $y1 - $y0 + 1);
 	my @degrees = (0.5, 0.1, 0.2, 0.2, 0.2, -1.4, -0.3, -0.2, -0.2, -0.2);
 	#for (my $i = 0; $i < scalar @degrees; ++$i) {
 	for my $d (@degrees) {
 		say "d = $d";
 		$img->Rotate(degrees => $d, background => 'white');
-		if (valid_img($img)) {
+		if (valid_img($img, $template)) {
 			say "img is now valid";
 			_draw_horiz_lines($img->Clone(), [get_lines_coord($img)], "rotated_$y0.jpg"); 
 			last;
 		}
 	}
 	return $img;
+}
+
+sub valid_img($$) {
+	my ($img, $template) = @_;
+	my @lines = get_lines_coord($img);
+	say Dumper(\@lines);
+	my $res = 1;
+	for (my $i = 0; $i < scalar @lines; $i += 2) {
+		my ($y0, $y1) = ($lines[$i], -$lines[$i+1]);
+		my $valid = $template->is_valid_line($y0, $y1);
+		unless($valid->[0]) { 
+			$res = 0; 
+			last; 
+		}
+	}
+	return $res;
 }
 
 #------------------------------------
@@ -349,6 +365,7 @@ $template->line_height(-$lines[1] - $lines[0] + 1); # first line must be OK.
 my @valid_img;
 my @valid_img_parts = ();
 my ($valid_start, $valid_end) = (undef, undef);
+
 # validate lines
 for (my $i = 0; $i < scalar @lines; $i += 2) {
 	my ($y0, $y1) = ($lines[$i], (-1) * $lines[$i+1]);
@@ -379,7 +396,9 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 			$valid_end = undef;
 		}
 		if ($valid->[1] eq 'big') {
-			my $img_new = rotate_img($img->Clone(), $y0, $y1);
+			my $img_new = rotate_img($img->Clone(), $y0, $y1, $template);
+			$img_new->BlackThreshold('50%');
+			$img_new->WhiteThreshold('50%');
 			$img_new->write("rotated_$i.jpg");
 			say "img written";
 			push @valid_img_parts, $img_new;
@@ -391,39 +410,21 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 		say "------";
 	}
 }
-say Dumper(\@valid_img_parts);
+
+# construct a new image from parts and name it "$img"
 my $img1 = Image::Magick->new();
 for (my $i = 0; $i < scalar @valid_img_parts; ++$i) {
-	#$valid_img_parts[$i]->write("p-$i.jpg");
 	$img1->[$i] = $valid_img_parts[$i][0];
 }
-say Dumper($img1);
-
 my $img2 = $img1->Append(stack=> 1);
 $img2->Set(page=> "0x0+0+0");
 $img2->write("appended.jpg");
-
-@lines = get_lines_coord($img2);
-#_draw_horiz_lines($img2->Clone(), \@lines, "appened-lines.jpg"); 
-
-
-sub valid_img($) {
-	my ($img) = @_;
-	my @lines = get_lines_coord($img);
-	say Dumper(\@lines);
-	my $res = 1;
-	for (my $i = 0; $i < scalar @lines; $i += 2) {
-		my ($y0, $y1) = ($lines[$i], -$lines[$i+1]);
-		my $valid = $template->is_valid_line($y0, $y1);
-		unless($valid->[0]) { 
-			$res = 0; 
-			last; 
-		}
-	}
-	return $res;
-}
 $img = undef;
 $img = $img2->Clone();
+$img2 = undef;
+
+@lines = get_lines_coord($img);
+#_draw_horiz_lines($img2->Clone(), \@lines, "appened-lines.jpg"); 
 
 # primary rough recognition
 my @preproc_lines = ();
@@ -436,7 +437,7 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 	);
 	next if scalar @$letters_coord == 0;
 
-	_draw_borders($img->Clone(), $letters_coord, "borders-new_$i.jpg");
+	#_draw_borders($img->Clone(), $letters_coord, "borders-new_$i.jpg");
 	my $white = sum(map {$_->{w}} @$letters_coord)/(scalar @$letters_coord);
 	my $avgh = sum(map {$_->{h}} @$letters_coord)/(scalar @$letters_coord);
 	my $str = "";
@@ -459,7 +460,7 @@ for (my $i = 0; $i < scalar @lines; $i += 2) {
 						- ($letters_coord->[$i-1]{x}
 						    + $letters_coord->[$i-1]{w})
 					)/$white;
-			$str .= " " x int(sprintf("%.1f", $d)) if (sprintf("%d", $d) >1.05);
+		$str .= " " x int(sprintf("%.1f", $d)) if (sprintf("%d", $d) > 1.05);
 		}
 		$str .=  $alphabet->word_to_sign($letter);
 	}
@@ -498,6 +499,7 @@ my $name = '';
 my $price = 0;
 my $regprice = 0;
 my $cardsavings = 0;
+my $qty = 0;
 my $creditcard = 0;
 my $change = 0;
 my $date = 0;
@@ -514,7 +516,7 @@ while($i < scalar @preproc_lines) {
 		for my $s (@{$preproc_lines[$i]->{coords}}) {
 			$header .= $alphabet->which_letter($s->{pix10x10});
 		}
-		# TODO header validation
+		$header = $template->get_valid_header($header);
 		++$i;
 		next;
 	}
@@ -526,7 +528,7 @@ while($i < scalar @preproc_lines) {
 		my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
 			? scalar @idx - 1 
 			: scalar @idx - 2;
-		say "idx_price: " . $idx_price; 
+		my $has_qty = $preproc_lines[$i]->{str} =~ /QTY/i;
 		for (my $j = 0; $j < scalar @idx; ++$j) {
 			if ($j == $idx_price) {
 				# parse price
@@ -540,14 +542,14 @@ while($i < scalar @preproc_lines) {
 				# parse name
 				for (my $k = $idx[$j][0]; $k <= $idx[$j][1]; ++$k) {
 					my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
-					$name .= $alphabet->which_letter($pix);
+					$name .= $alphabet->which_letter_uc($pix);
 				}
 				$name .= " ";
 			}
 			# and don't parse the last letter after price (F/T)
 		}
 		$product = Product->new(
-			name => $name, price => $price, category => $header);
+			name => $name, price => $price, category => lc($header));
 		say "HEADER: " . $header;
 		say "NAME: " . $name;
 		say "PRICE: " . $price;
