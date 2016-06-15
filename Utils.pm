@@ -4,7 +4,7 @@ use List::Util qw/sum/;
 use Data::Dumper;
 use feature qw/say/;
 use Image::Magick;
-
+use ReceiptImage;
 
 # param is an Image::Magick object
 #
