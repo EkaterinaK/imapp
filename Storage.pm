@@ -19,10 +19,10 @@ sub add_receipt {
 
 sub add_products {
 	my ($self, $products, $receipt_id) = @_;
-	my $stm = $self->dbh->prepare('INSERT INTO products VALUES (?,?,?,?,?,?,?,?);');
+	my $stm = $self->dbh->prepare('INSERT INTO products(id, name, group_name, price, crv, regprice, discount, quantity, receipt_id) VALUES (?,?,?,?,?,?,?,?,?);');
 	for my $p (@$products) {
-		my $res = $stm->execute(undef, $p->name, $p->category, $p->price,
-			$p->regprice, $p->discount, 1, $receipt_id);
+		my $res = $stm->execute(undef, $p->name, $p->category, $p->price, $p->crv,
+			$p->regprice, $p->discount, undef, $receipt_id);
 	}
 	say "===> add_products() done";
 }

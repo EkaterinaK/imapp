@@ -19,6 +19,7 @@ has 'alphabet' => (is => 'rw', isa => 'Object', required => 1);
 sub recognize() {
 	my ($self) = @_;
 	my ($chars, $whites, $avghs) = $self->char_coords();
+	#say "===> CHARS ".Dumper($chars);
 	say "===> chars, whites, avghs OK";
 	my @raw_text = $self->find_text($chars, $whites);
 	say "===> raw_text OK";
@@ -29,6 +30,8 @@ sub recognize() {
 		push @preproc_lines, {str => $str, coords => $coords}; 
 	}
 	say "===> preproc_lines OK";
+	my @r = map {$_->{str}} @preproc_lines;
+	say Dumper(\@r);
 	my $res = $self->find_products(@preproc_lines);
 	return $res;
 }
@@ -101,6 +104,7 @@ sub find_products() {
 	my $header = '';
 	my $name = '';
 	my $price = 0;
+	my $crv = 0;
 	my $regprice = 0;
 	my $cardsavings = 0;
 	my $qty = 0;
@@ -130,7 +134,7 @@ sub find_products() {
 			$product = undef;
 			$price = '';
 			$name = '';
-			my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+			my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 2 
 				? scalar @idx - 1 
 				: scalar @idx - 2;
 			my $has_qty = $preproc_lines[$i]->{str} =~ /QTY/i;
@@ -142,6 +146,7 @@ sub find_products() {
 						my $d = $self->alphabet->which_digit_or_point($pix);
 						$price .= $self->alphabet->word_to_sign($d);
 					}
+					$price = $self->template->single_price($price);
 				}
 				elsif ($j < $idx_price) {
 					# parse name
@@ -155,11 +160,29 @@ sub find_products() {
 			}
 			$product = Product->new(
 				name => $name, price => $price, category => lc($header));
+			say "------";
 			say "HEADER: " . $header;
 			say "NAME: " . $name;
 			say "PRICE: " . $price;
-			say "------";
 			++$i; 
+			next;
+		}
+		# California Redemption Value - fee for recycling
+		elsif($line_types[$i] eq 'crv') { 
+			$crv = '';
+			my $idx_price = $idx[-1][1] - $idx[-1][0] + 1 > 1 
+				? scalar @idx - 1 
+				: scalar @idx - 2;
+			# parse regprice
+			for (my $k = $idx[$idx_price][0]; $k <= $idx[$idx_price][1]; ++$k) {
+				my $pix = $preproc_lines[$i]->{coords}[$k]{pix10x10};
+				my $d = $self->alphabet->which_digit_or_point($pix);
+				$crv .= $self->alphabet->word_to_sign($d);
+			}
+			$crv = $self->template->single_price($crv);
+			if (defined $product) {$product->crv($crv);}
+			say "CRV: " . $crv;	
+			++$i;
 			next;
 		}
 		elsif($line_types[$i] eq 'regprice') {
@@ -173,6 +196,7 @@ sub find_products() {
 				my $d = $self->alphabet->which_digit_or_point($pix);
 				$regprice .= $self->alphabet->word_to_sign($d);
 			}
+			$regprice = $self->template->single_price($regprice);
 			if (defined $product) {$product->regprice($regprice);}
 			say "REGPRICE: " . $regprice;	
 			++$i;
@@ -189,6 +213,7 @@ sub find_products() {
 				my $d = $self->alphabet->which_digit_or_point($pix);
 				$cardsavings .= $self->alphabet->word_to_sign($d);
 			}
+			$cardsavings = $self->template->single_price($cardsavings);
 			if (defined $product) {$product->discount($cardsavings);}
 			say "CARDSAVINGS: " . $cardsavings;	
 			++$i;
@@ -205,6 +230,7 @@ sub find_products() {
 				my $d = $self->alphabet->which_digit_or_point($pix);
 				$creditcard .= $self->alphabet->word_to_sign($d);
 			}
+			$creditcard = $self->template->single_price($creditcard);
 			say "TOTAL: " . $creditcard;	
 			++$i;
 			next;
@@ -220,6 +246,7 @@ sub find_products() {
 				my $d = $self->alphabet->which_digit_or_point($pix);
 				$change .= $self->alphabet->word_to_sign($d);
 			}
+			$change = $self->template->single_price($change);
 			say "CHANGE: " . $change;	
 			++$i;
 			next;
@@ -258,6 +285,7 @@ sub find_products() {
 				my $d = $self->alphabet->which_digit_or_point($pix);
 				$tax .= $self->alphabet->word_to_sign($d);
 			}
+			$tax = $self->template->single_price($tax);
 			say "TAX: " . $tax;
 			++$i;
 			next;
@@ -270,7 +298,14 @@ sub find_products() {
 	my $date1 = $self->template->str2utime($date); 
 	my $receipt = Receipt->new({store => "Safeway", total => $creditcard,
 		datetime => $date1, tax => $tax});
-	return {products => \@products, receipt => $receipt};
+	say "===> PRODUCTS " . Dumper(\@products);
+	my $prices_ok = $self->template->prices_ok($receipt, \@products);
+	if ($prices_ok->{type} eq 'ok') {
+		say "validation successful";
+		return {products => \@products, receipt => $receipt};
+	} else {
+		die " !!! PRICES ARE INVALID " . Dumper($prices_ok->{data});
+	}
 }
 
 

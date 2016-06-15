@@ -3,8 +3,11 @@ package Template::Safeway;
 use Moose;
 use List::Util qw/all sum sum0/;
 use Data::Dumper;
-use Time::Local;
 use feature qw/say/;
+use Time::Local;
+
+use Receipt;
+use Product;
 
 has 'headers' => (
 	is => 'ro',
@@ -28,16 +31,56 @@ has 'width' => (
 
 #-------- PUBLIC --------
 
-# input:  "6/01/16 14:18"
+sub single_price($) {
+	my ($self, $str_price) = @_;
+	say "...single_price before: $str_price";
+	$str_price =~ s/^(\d*).(\d{2})$/$1\.$2/;
+	$str_price =~ s/^(\d*\.)(\d{2}).+$/$1$2/;
+	$str_price =~ s/\.+/\./;
+	say "...single_price after: $str_price";
+	return $str_price;
+}
+
+sub prices_ok($$) {
+	my ($self, $receipt, $products) = @_;
+	my $res = {};
+	my @data = ();
+	my $s = 0;
+	# check prices for all products
+	for (my $i = 0; $i < scalar @$products; ++$i) {
+		my $p = $products->[$i];
+		$s += $p->price;
+		$s += $p->crv // 0;
+		if (defined $p->regprice && abs($p->price - ($p->regprice - $p->discount)) > 0.1) { 
+			$res->{type} = 'bad' if !defined $res->{type};
+			push @data, $i;
+		}
+	}
+	# check total
+	say "total = " . $receipt->total;
+	say "tax = " . $receipt->tax;
+	say "sum = " . $s;
+	if (abs($s + $receipt->tax - $receipt->total) > 0.1) {
+		$res->{type} = 'bad' if !defined $res->{type};
+		push @data, "total";
+	}
+	$res->{data} = \@data;
+	$res->{type} = 'ok' if !defined $res->{type};
+	return $res;
+}
+
+# input: "6/01/16 14:18"
 # output: 1467407880
-# meaning in localtime: Fri Jul  1 14:18:00 2016
-#
+# parts: 6 01 16 14 18
+# output meaning: Fri Jul  1 14:18:00 2016
+
 sub str2utime($) {
 	my ($self, $str) = @_;
 	my $t;
-	if($str =~ m# \D* (\d{1,2}) \D+ (\d{1,2}) \D+ (\d{1,2}) \D+ (\d{1,2}) \D+ (\d{1,2})#x) { 
-		#print join " ", $1, $2, $3, $4, $5; 
-		$t = timelocal(0, $5, $4, $2, $1, 2000 + $3 - 1900); 
+	if($str =~ m# (\d{1,2}) \D+ (\d{1,2}) \D+ (\d{1,2}) \D+ (\d{1,2}) \D+ (\d{1,2})#x) { 
+		$t = timelocal(0, $5, $4, $2, $1, 2000+$3-1900);
+	} else {
+		die "Can't parse date and time from a string $str";
 	}
 	return $t;
 }
@@ -49,6 +92,15 @@ sub line_types($) {
 	for my $pl (@preproc_lines) {
 		if ($self->is_header($pl)) {
 			push @line_types, 'header';
+		}
+		elsif ($self->is_qty($pl->{str})) {
+			push @line_types, 'qty';
+		}
+		elsif ($self->is_crv($pl->{str})) {
+			push @line_types, 'crv';
+		}
+		elsif ($self->is_coupon($pl->{str})) {
+			push @line_types, 'coupon';
 		}
 		elsif ($self->is_regprice($pl->{str})) {
 			push @line_types, 'regprice';
@@ -132,6 +184,28 @@ sub is_taxbal($) {
 	return 0;
 }
 
+sub is_qty($) {
+	my ($self, $str) = @_;
+	return 1 if (length $str < 10 && $str =~ /qty/i);
+	return 0;
+}
+
+sub is_crv($) {
+	my ($self, $str) = @_;
+	my $match = 0;
+	for my $t (qw/crv sftdk sngl ntx tax/) {
+		$match += $str =~ /$t/i;
+	}
+	return 1 if $match >= 2;
+	return 0;
+}
+
+sub is_coupon($) {
+	my ($self, $str) = @_;
+	return 1 if $str =~ /cpn/i;
+	return 0;
+}
+
 sub fill_line_types($) {
 	my ($self, $line_types) = @_;
 	say "in fill_line_types ". Dumper($line_types);
@@ -146,6 +220,7 @@ sub fill_line_types($) {
 		if (defined ($line_types->[$i+1]) && $line_types->[$i+1] eq 'regprice') {
 			$line_types->[$i] = 'item';
 		}
+		elsif ($line_types->[$i-1] eq 'qty') {$line_types->[$i] = 'item'}
 		elsif ($line_types->[$i-1] eq 'regprice') {$line_types->[$i] = 'cardsavings'}
 		elsif ($line_types->[$i-1] eq 'weight') {$line_types->[$i] = 'item'}
 		elsif ($line_types->[$i-1] eq 'creditcard') {$line_types->[$i] = 'change'}
@@ -216,6 +291,8 @@ sub _load_headers() {
 		'refrig/frozen' => 1,
 		'gen merchandise' => 1,
 		'baked goods' => 1,
+		'groc nonedible' => 1,
+		'deli' => 1,
 	};
 }
 
