@@ -24,6 +24,24 @@ sub preprocess() {
 	#return $self;
 }
 
+# выравнивание каждой строки так, чтобы она стала минимальной высоты
+sub align2() {
+	#TODO 
+	my ($self) = @_;
+	my @lines = get_lines_coord($self);
+	my @valid_img_parts = ();
+	for (my $i = 0; $i < scalar @lines; $i =+ 2) {
+		my ($y0, $y1) = ($lines[$i], -$lines[$i+1]);
+		my $img_new = rotate_img2($self->Clone(), $y0, $y1);
+		$img_new->BlackThreshold('50%');
+		$img_new->WhiteThreshold('50%');
+		$img_new->write("rotated_$i.jpg");
+		say "\timg written";
+		push @valid_img_parts, $img_new;
+
+	}
+}
+
 # !! changes object in place
 sub align() {
 	my ($self) = @_; 
@@ -54,6 +72,15 @@ sub align() {
 			# invalid line
 			#say "INVALID (" . $valid . ")";
 			if (defined $valid_start) {
+				#---- add blank image --------------
+				my $w = $self->Get("columns");
+				my $h = $y0 - (-$lines[$i-1]);
+				my $img_blank = ReceiptImage->new();
+				$img_blank->Set(size=>"$w"."x"."$h");
+				$img_blank->ReadImage('canvas:white');
+				push @valid_img_parts, $img_blank;
+				say "(blank img before REGULAR added)";
+				#---- add regular part-------
 				$valid_end = -$lines[$i-1];
 				#say "valid end $valid_end";
 				push @valid_img_parts, 
@@ -62,6 +89,15 @@ sub align() {
 				$valid_end = undef;
 			}
 			if ($valid eq 'big') {
+				#---- add blank image --------------
+				my $w = $self->Get("columns");
+				my $h = $y0 - (-$lines[$i-1]);
+				my $img_blank = ReceiptImage->new();
+				$img_blank->Set(size=>"$w"."x"."$h");
+				$img_blank->ReadImage('canvas:white');
+				push @valid_img_parts, $img_blank;
+				say "(blank img before big added)";
+				#---- construct new rotated image----
 				my $img_new = rotate_img($self->Clone(), $y0, $y1);
 				$img_new->BlackThreshold('50%');
 				$img_new->WhiteThreshold('50%');
@@ -72,6 +108,13 @@ sub align() {
 			}
 			elsif ($valid eq 'small') { 
 				say "(skipped)";
+				my $w = $self->Get("columns");
+				my $h = $y1 - (-$lines[$i-1]);
+				my $img_blank = ReceiptImage->new();
+				$img_blank->Set(size=>"$w"."x"."$h");
+				$img_blank->ReadImage('canvas:white');
+				push @valid_img_parts, $img_blank;
+				say "(blank img instead of small added)";
 			}
 			say "------";
 		}
@@ -174,7 +217,9 @@ sub rotate_img($$$) {
 	$img->Crop(	x => 0, y => $y0, 
 		width => $img->Get('columns'), 
 		height => $y1 - $y0 + 1);
-	my @degrees = (0.5, 0.1, 0.2, 0.2, 0.2, -1.4, -0.3, -0.2, -0.2, -0.2);
+	#my @degrees = (0.5, 0.1, 0.2, 0.2, 0.2, -1.4, -0.3, -0.2, -0.2, -0.2);
+	my @degrees = (0.5, 0.1, 0.2, 0.2, 0.2,0.2, 0.2,0.2,0.2,0.2,0.2,0.2, -2.8, -0.3, -0.2, -0.2, -0.2, -0.2, -0.2, -0.2, -0.2, -0.2, -0.2, -0.2);
+	#my @degrees = (0.5, 0.1, 0.2, 0.2, 0.2, -1.4, -0.1, -0.1, -0.1, -0.1, -0.1, -0.2, -0.2);
 	for my $d (@degrees) {
 		print "$d ";
 		$img->Rotate(degrees => $d, background => 'white');
